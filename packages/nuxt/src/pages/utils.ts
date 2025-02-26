@@ -247,62 +247,67 @@ export async function getRouteMeta (contents: string, absolutePath: string, extr
 
       foundMeta = true
       const pageMetaArgument = node.expression.arguments[0]
-      if (pageMetaArgument?.type !== 'ObjectExpression') { return }
+      if (pageMetaArgument?.type !== 'ObjectExpression' && pageMetaArgument?.type !== 'CallExpression') { return }
 
-      for (const key of extractionKeys) {
-        const property = pageMetaArgument.properties.find((property): property is Property => property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === key)
-        if (!property) { continue }
+      if (pageMetaArgument.type === 'CallExpression') {
+        logger.debug(`Skipping extraction of metadata as it is a function call (reading \`${absolutePath}\`).`)
+        dynamicProperties.add('meta')
+      } else {
+        for (const key of extractionKeys) {
+          const property = pageMetaArgument.properties.find((property): property is Property => property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === key)
+          if (!property) { continue }
 
-        const propertyValue = withLocations(property.value)
+          const propertyValue = withLocations(property.value)
 
-        if (propertyValue.type === 'ObjectExpression') {
-          const valueString = js.code.slice(propertyValue.start, propertyValue.end)
-          try {
-            extractedMeta[key] = JSON.parse(runInNewContext(`JSON.stringify(${valueString})`, {}))
-          } catch {
-            logger.debug(`Skipping extraction of \`${key}\` metadata as it is not JSON-serializable (reading \`${absolutePath}\`).`)
-            dynamicProperties.add(key)
-            continue
-          }
-        }
-
-        if (propertyValue.type === 'ArrayExpression') {
-          const values: string[] = []
-          for (const element of propertyValue.elements) {
-            if (!element) {
-              continue
-            }
-            if (element.type !== 'Literal' || typeof element.value !== 'string') {
-              logger.debug(`Skipping extraction of \`${key}\` metadata as it is not an array of string literals (reading \`${absolutePath}\`).`)
+          if (propertyValue.type === 'ObjectExpression') {
+            const valueString = js.code.slice(propertyValue.start, propertyValue.end)
+            try {
+              extractedMeta[key] = JSON.parse(runInNewContext(`JSON.stringify(${valueString})`, {}))
+            } catch {
+              logger.debug(`Skipping extraction of \`${key}\` metadata as it is not JSON-serializable (reading \`${absolutePath}\`).`)
               dynamicProperties.add(key)
               continue
             }
-            values.push(element.value)
           }
-          extractedMeta[key] = values
-          continue
+
+          if (propertyValue.type === 'ArrayExpression') {
+            const values: string[] = []
+            for (const element of propertyValue.elements) {
+              if (!element) {
+                continue
+              }
+              if (element.type !== 'Literal' || typeof element.value !== 'string') {
+                logger.debug(`Skipping extraction of \`${key}\` metadata as it is not an array of string literals (reading \`${absolutePath}\`).`)
+                dynamicProperties.add(key)
+                continue
+              }
+              values.push(element.value)
+            }
+            extractedMeta[key] = values
+            continue
+          }
+
+          if (propertyValue.type !== 'Literal' || (typeof propertyValue.value !== 'string' && typeof propertyValue.value !== 'boolean')) {
+            logger.debug(`Skipping extraction of \`${key}\` metadata as it is not a string literal or array of string literals (reading \`${absolutePath}\`).`)
+            dynamicProperties.add(key)
+            continue
+          }
+          extractedMeta[key] = propertyValue.value
         }
 
-        if (propertyValue.type !== 'Literal' || (typeof propertyValue.value !== 'string' && typeof propertyValue.value !== 'boolean')) {
-          logger.debug(`Skipping extraction of \`${key}\` metadata as it is not a string literal or array of string literals (reading \`${absolutePath}\`).`)
-          dynamicProperties.add(key)
-          continue
-        }
-        extractedMeta[key] = propertyValue.value
-      }
-
-      for (const property of pageMetaArgument.properties) {
-        if (property.type !== 'Property') {
-          continue
-        }
-        const isIdentifierOrLiteral = property.key.type === 'Literal' || property.key.type === 'Identifier'
-        if (!isIdentifierOrLiteral) {
-          continue
-        }
-        const name = property.key.type === 'Identifier' ? property.key.name : String(property.value)
-        if (!extractionKeys.has(name as keyof NuxtPage)) {
-          dynamicProperties.add('meta')
-          break
+        for (const property of pageMetaArgument.properties) {
+          if (property.type !== 'Property') {
+            continue
+          }
+          const isIdentifierOrLiteral = property.key.type === 'Literal' || property.key.type === 'Identifier'
+          if (!isIdentifierOrLiteral) {
+            continue
+          }
+          const name = property.key.type === 'Identifier' ? property.key.name : String(property.value)
+          if (!extractionKeys.has(name as keyof NuxtPage)) {
+            dynamicProperties.add('meta')
+            break
+          }
         }
       }
 

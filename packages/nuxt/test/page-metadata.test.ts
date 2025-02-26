@@ -238,6 +238,30 @@ definePageMeta({ name: 'bar' })
       }
     `)
   })
+
+  it('should extract metadata if it is a function', async () => {
+    const meta = await getRouteMeta(`
+    <script setup>
+    function meta(someParam) {
+      return {
+        foo: someParam
+      }
+    }
+
+    definePageMeta(meta('bar'))
+    </script>
+    `, filePath)
+
+    expect(meta).toMatchInlineSnapshot(`
+      {
+        "meta": {
+          "__nuxt_dynamic_meta_key": Set {
+            "meta",
+          },
+        },
+      }
+    `)
+  })
 })
 
 describe('normalizeRoutes', () => {
@@ -384,6 +408,37 @@ definePageMeta({
         validate: validateIdParam,
         test: () => 'hello',
       }
+      export default __nuxt_page_meta"
+    `)
+  })
+
+  it('should transform a top level function call', () => {
+    const sfc = `
+<script setup lang="ts">
+function meta() {
+  return {
+    name: 'hi'
+  }
+}
+
+definePageMeta(meta())
+</script>
+      `
+    const res = compileScript(parse(sfc).descriptor, { id: 'component.vue' })
+    expect(transformPlugin.transform.call({
+      parse: (code: string, opts: any = {}) => Parser.parse(code, {
+        sourceType: 'module',
+        ecmaVersion: 'latest',
+        locations: true,
+        ...opts,
+      }),
+    }, res.content, 'component.vue?macro=true')?.code).toMatchInlineSnapshot(`
+      "function meta() {
+        return {
+          name: 'hi'
+        }
+      }
+      const __nuxt_page_meta = meta()
       export default __nuxt_page_meta"
     `)
   })
